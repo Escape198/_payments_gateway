@@ -1,0 +1,28 @@
+[project]
+name = "payments-gateway"
+version = "0.1.0"
+description = "Manifest-driven payment orchestration platform — architectural reference"
+requires-python = ">=3.12"
+readme = "README.md"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "jsonpath-ng>=1.6",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "redis>=5.0",
+    "aiokafka>=0.11",
+    "structlog>=24.1",
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

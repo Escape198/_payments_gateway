@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://payments-gateway/manifest.schema.json",
+  "title": "ProviderManifest",
+  "description": "Declarative description of a payment provider, executed by the Provider Engine.",
+  "type": "object",
+  "required": ["provider", "auth", "capabilities", "operations", "webhook", "retry_policy"],
+  "additionalProperties": false,
+  "properties": {
+    "provider": {
+      "type": "object",
+      "required": ["code", "name", "version", "manifest_schema"],
+      "additionalProperties": false,
+      "properties": {
+        "code":            { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+        "name":            { "type": "string", "minLength": 1, "maxLength": 128 },
+        "version":         { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "manifest_schema": { "type": "integer", "const": 1 },
+        "vendor_docs":     { "type": "string", "format": "uri" },
+        "contact":         { "type": "string", "format": "email" },
+        "mode":            { "enum": ["production", "sandbox"], "default": "production" }
+      }
+    },
+
+    "auth": {
+      "oneOf": [
+        { "$ref": "#/$defs/auth_bearer" },
+        { "$ref": "#/$defs/auth_basic" },
+        { "$ref": "#/$defs/auth_api_key_header" },
+        { "$ref": "#/$defs/auth_api_key_query" },
+        { "$ref": "#/$defs/auth_hmac_request" },
+        { "$ref": "#/$defs/auth_oauth2_cc" },
+        { "$ref": "#/$defs/auth_mtls" }
+      ]
+    },
+
+    "capabilities": {
+      "type": "array",
+      "items": { "enum": ["charge", "capture", "void", "refund", "payout", "webhook", "healthcheck"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+
+    "operations": {
+      "type": "object",
+      "minProperties": 1,
+      "patternProperties": {
+        "^(charge|capture|void|refund|payout|healthcheck)$": { "$ref": "#/$defs/operation" }
+      },
+      "additionalProperties": false
+    },
+
+    "webhook":        { "$ref": "#/$defs/webhook" },
+    "status_mapping": { "$ref": "#/$defs/status_mapping" },
+    "retry_policy":   { "$ref": "#/$defs/retry_policy" },
+    "limits":         { "$ref": "#/$defs/limits" }
+  },
+
+  "$defs": {
+    "auth_bearer": {
+      "type": "object",
+      "required": ["type", "secrets", "token_secret"],
+      "properties": {
+        "type":         { "const": "bearer" },
+        "secrets":      { "$ref": "#/$defs/secret_names" },
+        "token_secret": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "auth_basic": {
+      "type": "object",
+      "required": ["type", "secrets", "username_secret", "password_secret"],
+      "properties": {
+        "type":            { "const": "basic" },
+        "secrets":         { "$ref": "#/$defs/secret_names" },
+        "username_secret": { "type": "string" },
+        "password_secret": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "auth_api_key_header": {
+      "type": "object",
+      "required": ["type", "secrets", "header", "secret"],
+      "properties": {
+        "type":    { "const": "api_key_header" },
+        "secrets": { "$ref": "#/$defs/secret_names" },
+        "header":  { "type": "string", "minLength": 1 },
+        "secret":  { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "auth_api_key_query": {
+      "type": "object",
+      "required": ["type", "secrets", "param", "secret"],
+      "properties": {
+        "type":    { "const": "api_key_query" },
+        "secrets": { "$ref": "#/$defs/secret_names" },
+        "param":   { "type": "string", "minLength": 1 },
+        "secret":  { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "auth_hmac_request": {
+      "type": "object",
+      "required": ["type", "secrets", "algorithm", "header", "secret", "payload"],
+      "properties": {
+        "type":      { "const": "hmac_request" },
+        "secrets":   { "$ref": "#/$defs/secret_names" },
+        "algorithm": { "enum": ["sha256", "sha512"] },
+        "header":    { "type": "string", "minLength": 1 },
+        "secret":    { "type": "string" },
+        "payload":   { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "auth_oauth2_cc": {
+      "type": "object",
+      "required": ["type", "secrets", "token_url", "client_id_secret", "client_secret_secret"],
+      "properties": {
+        "type":                 { "const": "oauth2_cc" },
+        "secrets":              { "$ref": "#/$defs/secret_names" },
+        "token_url":            { "type": "string", "format": "uri" },
+        "client_id_secret":     { "type": "string" },
+        "client_secret_secret": { "type": "string" },
+        "scope":                { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "auth_mtls": {
+      "type": "object",
+      "required": ["type", "secrets", "client_cert_secret", "client_key_secret"],
+      "properties": {
+        "type":               { "const": "mtls" },
+        "secrets":            { "$ref": "#/$defs/secret_names" },
+        "client_cert_secret": { "type": "string" },
+        "client_key_secret":  { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "secret_names": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+
+    "operation": {
+      "type": "object",
+      "required": ["method", "url", "response"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "url":    { "type": "string", "minLength": 1 },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "body": {
+          "type": "object",
+          "required": ["encoding"],
+          "properties": {
+            "encoding": { "enum": ["json", "form", "xml", "none"] },
+            "fields":   {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "raw_template": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "response": {
+          "type": "object",
+          "required": ["parser", "success_when", "mapping"],
+          "additionalProperties": false,
+          "properties": {
+            "parser":       { "enum": ["jsonpath", "xpath"] },
+            "success_when": { "type": "string", "minLength": 1 },
+            "mapping": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        },
+        "status_mapping": { "$ref": "#/$defs/status_mapping" },
+        "idempotency": {
+          "type": "object",
+          "required": ["mechanism"],
+          "properties": {
+            "mechanism":        { "enum": ["header", "body", "none"] },
+            "target":           { "type": "string" },
+            "key_template":     { "type": "string" },
+            "server_enforced":  { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+
+    "webhook": {
+      "type": "object",
+      "required": ["signature", "event_id_path", "event_type_path", "event_mapping"],
+      "additionalProperties": false,
+      "properties": {
+        "signature": {
+          "type": "object",
+          "required": ["scheme"],
+          "properties": {
+            "scheme":            { "enum": ["hmac_sha256", "hmac_sha512", "stripe_v1", "paypal_certificate", "none"] },
+            "header":            { "type": "string" },
+            "secret":            { "type": "string" },
+            "timestamp_header":  { "type": "string" },
+            "tolerance_seconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+          },
+          "additionalProperties": false
+        },
+        "event_id_path":   { "type": "string", "minLength": 1 },
+        "event_type_path": { "type": "string", "minLength": 1 },
+        "event_mapping": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["payment.authorized", "payment.captured", "payment.failed",
+                    "payment.refunded", "payment.voided", "payment.chargeback",
+                    "payment.action_required", "payment.expired"]
+          },
+          "minProperties": 1
+        },
+        "payload_paths": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+
+    "status_mapping": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": ["PENDING", "AUTHORIZED", "ACTION_REQUIRED", "CAPTURED",
+                "SETTLED", "FAILED", "REFUNDED", "VOIDED", "CHARGEBACK"]
+      }
+    },
+
+    "retry_policy": {
+      "type": "object",
+      "required": ["max_attempts", "backoff", "base_ms", "cap_ms", "retry_on"],
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "backoff":      { "enum": ["exponential", "linear", "fixed"] },
+        "base_ms":      { "type": "integer", "minimum": 50, "maximum": 60000 },
+        "cap_ms":       { "type": "integer", "minimum": 50, "maximum": 600000 },
+        "jitter":       { "enum": ["full", "none"], "default": "full" },
+        "retry_on": {
+          "type": "array",
+          "items": { "enum": ["timeout", "network_error", "http_5xx", "http_429", "circuit_open"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "do_not_retry_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_timeout_ms": { "type": "integer", "minimum": 500, "maximum": 60000 },
+        "max_response_bytes": { "type": "integer", "minimum": 1024, "maximum": 16777216 },
+        "outbound_rps":       { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    }
+  }
+}

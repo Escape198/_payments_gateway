@@ -1,0 +1,117 @@
+provider:
+  code: paypal
+  name: PayPal
+  version: 1.0.0
+  manifest_schema: 1
+  vendor_docs: https://developer.paypal.com/docs/api/orders/v2/
+  mode: production
+
+auth:
+  type: oauth2_cc
+  secrets: [client_id, client_secret, webhook_id, webhook_secret]
+  token_url: https://api-m.paypal.com/v1/oauth2/token
+  client_id_secret: client_id
+  client_secret_secret: client_secret
+  scope: ""
+
+capabilities: [charge, capture, refund, webhook]
+
+operations:
+  charge:
+    method: POST
+    url: https://api-m.paypal.com/v2/checkout/orders
+    headers:
+      Content-Type:     "application/json"
+      PayPal-Request-Id: "{{ idempotency.outbound_key }}"
+    body:
+      encoding: json
+      fields:
+        intent:           "CAPTURE"
+        purchase_units:   "[{\"reference_id\":\"{{ payment.id }}\",\"amount\":{\"currency_code\":\"{{ payment.currency | upper }}\",\"value\":\"{{ payment.amount_minor | from_minor_units(payment.currency) }}\"}}]"
+        payment_source:   "{\"paypal\":{\"experience_context\":{\"return_url\":\"{{ env.gateway_base_url }}/v1/redirect/paypal/return\",\"cancel_url\":\"{{ env.gateway_base_url }}/v1/redirect/paypal/cancel\"}}}"
+    response:
+      parser: jsonpath
+      success_when: "$.status in ['CREATED','APPROVED','COMPLETED']"
+      mapping:
+        provider_payment_id: "$.id"
+        provider_status:     "$.status"
+        approval_link:       "$.links[?(@.rel == 'payer-action')].href"
+    status_mapping:
+      CREATED:   ACTION_REQUIRED
+      APPROVED:  AUTHORIZED
+      COMPLETED: CAPTURED
+      VOIDED:    VOIDED
+    idempotency:
+      mechanism: header
+      target: "PayPal-Request-Id"
+      key_template: "{{ payment.id }}:charge:{{ idempotency.attempt }}"
+
+  capture:
+    method: POST
+    url: "https://api-m.paypal.com/v2/checkout/orders/{{ payment.provider_payment_id }}/capture"
+    headers:
+      Content-Type: "application/json"
+      PayPal-Request-Id: "{{ idempotency.outbound_key }}"
+    body: { encoding: json, fields: {} }
+    response:
+      parser: jsonpath
+      success_when: "$.status == 'COMPLETED'"
+      mapping:
+        provider_status: "$.status"
+    status_mapping:
+      COMPLETED: CAPTURED
+    idempotency: { mechanism: header, target: "PayPal-Request-Id",
+                   key_template: "{{ payment.id }}:capture:{{ idempotency.attempt }}" }
+
+  refund:
+    method: POST
+    url: "https://api-m.paypal.com/v2/payments/captures/{{ payment.provider_capture_id }}/refund"
+    headers:
+      Content-Type: "application/json"
+      PayPal-Request-Id: "{{ idempotency.outbound_key }}"
+    body:
+      encoding: json
+      fields:
+        amount: "{\"currency_code\":\"{{ payment.currency | upper }}\",\"value\":\"{{ payment.refund_amount_minor | from_minor_units(payment.currency) }}\"}"
+    response:
+      parser: jsonpath
+      success_when: "$.status in ['COMPLETED','PENDING']"
+      mapping:
+        provider_refund_id: "$.id"
+        provider_status:    "$.status"
+    status_mapping:
+      COMPLETED: REFUNDED
+      PENDING:   PENDING
+    idempotency: { mechanism: header, target: "PayPal-Request-Id",
+                   key_template: "{{ payment.id }}:refund:{{ idempotency.attempt }}" }
+
+webhook:
+  signature:
+    scheme: paypal_certificate
+    tolerance_seconds: 600
+  event_id_path:   "$.id"
+  event_type_path: "$.event_type"
+  event_mapping:
+    CHECKOUT.ORDER.APPROVED:        payment.authorized
+    PAYMENT.CAPTURE.COMPLETED:      payment.captured
+    PAYMENT.CAPTURE.DENIED:         payment.failed
+    PAYMENT.CAPTURE.REFUNDED:       payment.refunded
+    CUSTOMER.DISPUTE.CREATED:       payment.chargeback
+  payload_paths:
+    payment_id_ref: "$.resource.purchase_units[0].reference_id"
+    amount_minor:   "$.resource.amount.value"
+    currency:       "$.resource.amount.currency_code"
+
+retry_policy:
+  max_attempts: 5
+  backoff: exponential
+  base_ms: 500
+  cap_ms: 30000
+  jitter: full
+  retry_on: [timeout, network_error, http_5xx, http_429]
+  do_not_retry_on: [http_400, http_401, http_404, http_422]
+
+limits:
+  request_timeout_ms: 10000
+  max_response_bytes: 524288
+  outbound_rps: 50

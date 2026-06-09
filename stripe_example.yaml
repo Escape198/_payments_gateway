@@ -1,0 +1,145 @@
+provider:
+  code: stripe
+  name: Stripe
+  version: 1.0.0
+  manifest_schema: 1
+  vendor_docs: https://stripe.com/docs/api
+  mode: production
+
+auth:
+  type: bearer
+  secrets: [api_key, webhook_secret]
+  token_secret: api_key
+
+capabilities: [charge, capture, void, refund, webhook]
+
+operations:
+  charge:
+    method: POST
+    url: https://api.stripe.com/v1/payment_intents
+    headers:
+      Authorization: "Bearer {{ secrets.api_key }}"
+      Idempotency-Key: "{{ idempotency.outbound_key }}"
+      Content-Type: "application/x-www-form-urlencoded"
+    body:
+      encoding: form
+      fields:
+        amount:           "{{ payment.amount_minor }}"
+        currency:         "{{ payment.currency | lower }}"
+        payment_method:   "{{ payment.method_token }}"
+        confirm:          "true"
+        capture_method:   "automatic"
+        "metadata[gateway_payment_id]": "{{ payment.id }}"
+    response:
+      parser: jsonpath
+      success_when: "$.status in ['succeeded','requires_action','processing','requires_capture']"
+      mapping:
+        provider_payment_id: "$.id"
+        provider_status:     "$.status"
+        next_action:         "$.next_action"
+        error_code:          "$.last_payment_error.code"
+        error_message:       "$.last_payment_error.message"
+    status_mapping:
+      succeeded:        CAPTURED
+      processing:       PENDING
+      requires_action:  ACTION_REQUIRED
+      requires_capture: AUTHORIZED
+      canceled:         FAILED
+    idempotency:
+      mechanism: header
+      target: "Idempotency-Key"
+      key_template: "{{ payment.id }}:charge:{{ idempotency.attempt }}"
+
+  capture:
+    method: POST
+    url: "https://api.stripe.com/v1/payment_intents/{{ payment.provider_payment_id }}/capture"
+    headers:
+      Authorization: "Bearer {{ secrets.api_key }}"
+      Idempotency-Key: "{{ idempotency.outbound_key }}"
+    body:
+      encoding: form
+      fields:
+        amount_to_capture: "{{ payment.amount_minor }}"
+    response:
+      parser: jsonpath
+      success_when: "$.status == 'succeeded'"
+      mapping:
+        provider_status: "$.status"
+    status_mapping:
+      succeeded: CAPTURED
+    idempotency: { mechanism: header, target: "Idempotency-Key",
+                   key_template: "{{ payment.id }}:capture:{{ idempotency.attempt }}" }
+
+  refund:
+    method: POST
+    url: https://api.stripe.com/v1/refunds
+    headers:
+      Authorization: "Bearer {{ secrets.api_key }}"
+      Idempotency-Key: "{{ idempotency.outbound_key }}"
+    body:
+      encoding: form
+      fields:
+        payment_intent: "{{ payment.provider_payment_id }}"
+        amount:         "{{ payment.refund_amount_minor }}"
+    response:
+      parser: jsonpath
+      success_when: "$.status in ['succeeded','pending']"
+      mapping:
+        provider_refund_id: "$.id"
+        provider_status:    "$.status"
+    status_mapping:
+      succeeded: REFUNDED
+      pending:   PENDING
+    idempotency: { mechanism: header, target: "Idempotency-Key",
+                   key_template: "{{ payment.id }}:refund:{{ idempotency.attempt }}" }
+
+  void:
+    method: POST
+    url: "https://api.stripe.com/v1/payment_intents/{{ payment.provider_payment_id }}/cancel"
+    headers:
+      Authorization: "Bearer {{ secrets.api_key }}"
+      Idempotency-Key: "{{ idempotency.outbound_key }}"
+    body: { encoding: none }
+    response:
+      parser: jsonpath
+      success_when: "$.status == 'canceled'"
+      mapping:
+        provider_status: "$.status"
+    status_mapping:
+      canceled: VOIDED
+    idempotency: { mechanism: header, target: "Idempotency-Key",
+                   key_template: "{{ payment.id }}:void:{{ idempotency.attempt }}" }
+
+webhook:
+  signature:
+    scheme: stripe_v1
+    header: Stripe-Signature
+    secret: webhook_secret
+    tolerance_seconds: 300
+  event_id_path:   "$.id"
+  event_type_path: "$.type"
+  event_mapping:
+    payment_intent.succeeded:        payment.captured
+    payment_intent.amount_capturable_updated: payment.authorized
+    payment_intent.payment_failed:   payment.failed
+    payment_intent.requires_action:  payment.action_required
+    charge.refunded:                 payment.refunded
+    charge.dispute.created:          payment.chargeback
+  payload_paths:
+    payment_id_ref: "$.data.object.metadata.gateway_payment_id"
+    amount_minor:   "$.data.object.amount"
+    currency:       "$.data.object.currency"
+
+retry_policy:
+  max_attempts: 5
+  backoff: exponential
+  base_ms: 250
+  cap_ms: 30000
+  jitter: full
+  retry_on: [timeout, network_error, http_5xx, http_429]
+  do_not_retry_on: [http_400, http_401, http_402, http_404]
+
+limits:
+  request_timeout_ms: 8000
+  max_response_bytes: 524288
+  outbound_rps: 100

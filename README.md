@@ -20,6 +20,7 @@ payments-gateway/
 ├── docs/
 │   ├── architecture.md          ← long-form architecture
 │   ├── manifest-spec.md         ← the ProviderManifest contract
+│   └── adr/                     ← 7 architecture decision records
 ├── manifests/
 │   ├── stripe.yaml              ← reference manifest
 │   ├── paypal.yaml              ← OAuth2 client-credentials example
