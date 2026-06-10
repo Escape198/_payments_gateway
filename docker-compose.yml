@@ -15,17 +15,38 @@ services:
 
   redpanda:
     image: redpandadata/redpanda:latest
-    command: >
-      redpanda start --smp 1 --memory 512M --reserve-memory 0M --overprovisioned
-      --node-id 0 --check=false
-      --kafka-addr PLAINTEXT://0.0.0.0:9092
-      --advertise-kafka-addr PLAINTEXT://redpanda:9092
+    command:
+      - redpanda start
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
     ports: ["9092:9092"]
 
-  vault:
-    image: hashicorp/vault:1.17
+  fake-psp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn payments.infrastructure.fake_psp.app:app --host 0.0.0.0 --port 9000
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: dev-root
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    cap_add: ["IPC_LOCK"]
-    ports: ["8200:8200"]
+      FAKE_PSP_API_KEY: sk_fake_demo
+      FAKE_PSP_WEBHOOK_SECRET: whsec_fake_demo
+      FAKE_PSP_WEBHOOK_URL: http://gateway:8000/v1/webhooks/fake
+    ports: ["9000:9000"]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn payments.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP: redpanda:9092
+      GATEWAY_BASE_URL: http://gateway:8000
+    depends_on: [postgres, redis, redpanda]
+    ports: ["8000:8000"]

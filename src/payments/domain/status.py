@@ -29,18 +29,40 @@ class TransactionStatus(StrEnum):
     FAILED = "FAILED"
 
 
-ALLOWED: dict[PaymentStatus, frozenset[PaymentStatus]] = {
-    PaymentStatus.PENDING:         frozenset({PaymentStatus.ACTION_REQUIRED, PaymentStatus.AUTHORIZED, PaymentStatus.CAPTURED, PaymentStatus.FAILED}),
-    PaymentStatus.ACTION_REQUIRED: frozenset({PaymentStatus.AUTHORIZED, PaymentStatus.CAPTURED, PaymentStatus.FAILED}),
-    PaymentStatus.AUTHORIZED:      frozenset({PaymentStatus.CAPTURED, PaymentStatus.VOIDED, PaymentStatus.FAILED}),
-    PaymentStatus.CAPTURED:        frozenset({PaymentStatus.SETTLED, PaymentStatus.REFUNDED, PaymentStatus.CHARGEBACK}),
-    PaymentStatus.SETTLED:         frozenset({PaymentStatus.REFUNDED, PaymentStatus.CHARGEBACK}),
-    PaymentStatus.REFUNDED:        frozenset(),
-    PaymentStatus.VOIDED:          frozenset(),
-    PaymentStatus.FAILED:          frozenset(),
-    PaymentStatus.CHARGEBACK:      frozenset(),
+# Allowed transitions for the Payment aggregate.
+# The aggregate consults this; the engine does not.
+_ALLOWED: dict[PaymentStatus, frozenset[PaymentStatus]] = {
+    PaymentStatus.PENDING: frozenset({
+        PaymentStatus.ACTION_REQUIRED,
+        PaymentStatus.AUTHORIZED,
+        PaymentStatus.CAPTURED,
+        PaymentStatus.FAILED,
+    }),
+    PaymentStatus.ACTION_REQUIRED: frozenset({
+        PaymentStatus.AUTHORIZED,
+        PaymentStatus.CAPTURED,
+        PaymentStatus.FAILED,
+    }),
+    PaymentStatus.AUTHORIZED: frozenset({
+        PaymentStatus.CAPTURED,
+        PaymentStatus.VOIDED,
+        PaymentStatus.FAILED,
+    }),
+    PaymentStatus.CAPTURED: frozenset({
+        PaymentStatus.SETTLED,
+        PaymentStatus.REFUNDED,
+        PaymentStatus.CHARGEBACK,
+    }),
+    PaymentStatus.SETTLED: frozenset({
+        PaymentStatus.REFUNDED,
+        PaymentStatus.CHARGEBACK,
+    }),
+    PaymentStatus.REFUNDED: frozenset(),
+    PaymentStatus.VOIDED: frozenset(),
+    PaymentStatus.FAILED: frozenset(),
+    PaymentStatus.CHARGEBACK: frozenset(),
 }
 
 
 def can_transition(src: PaymentStatus, dst: PaymentStatus) -> bool:
-    return dst in ALLOWED[src]
+    return dst in _ALLOWED[src]

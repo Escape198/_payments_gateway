@@ -7,4 +7,4 @@ COPY src ./src
 RUN uv pip install --system --no-cache .
 
 ENV PYTHONPATH=/app/src
-EXPOSE 8000
+EXPOSE 8000 9000
